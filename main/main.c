@@ -145,7 +145,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         // Send the relay configuration
         sprintf(topic, "homeassistant/number/%s/config",config.Name);
         sprintf(payload, "{\"unique_id\": \"T_%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\" }, \
-            \"min\":0, \"max\":15, \"command_topic\": \"homeassistant/number/%s/command\"}"
+            \"min\":0, \"max\":15, \"retain\":true, \
+            \"command_topic\": \"homeassistant/number/%s/command\"}"
             ,config.UID, config.DeviceID, config.Name, config.Name);
         msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
         mqttMessagesQueued++;
