@@ -140,15 +140,21 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
         // Subscribe to the time feed
         msg_id = esp_mqtt_client_subscribe(client, "homeassistant/CurrentTime", 0);
-        ESP_LOGI(TAG, "Subscribe send for time feed, msg_id=%d", msg_id);
+        ESP_LOGI(TAG, "Subscribe sent for time feed, msg_id=%d", msg_id);
 
         // Send the relay configuration
         sprintf(topic, "homeassistant/number/%s/config",config.Name);
-        sprintf(payload, "{\"unique_id\": \"T_%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\" }, \"command_topic\": \"homeassistant/number/%s/command\"}"
+        sprintf(payload, "{\"unique_id\": \"T_%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\" }, \
+            \"min\":0, \"max\":15, \"command_topic\": \"homeassistant/number/%s/command\"}"
             ,config.UID, config.DeviceID, config.Name, config.Name);
         msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
         mqttMessagesQueued++;
         ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
+
+        // Subscribe to the command feed
+        sprintf(s, "homeassistant/number/%s/command", config.Name);
+        msg_id = esp_mqtt_client_subscribe(client, s, 0);
+        ESP_LOGI(TAG, "Subscribe sent for the command feed, msg_id=%d", msg_id);
 
         /*
 
@@ -194,12 +200,20 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_DATA:
         //ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         strncpy(s, event->topic, event->topic_len);
+        s[event->topic_len] = '\0';
+        printf("Received an event - topic was %s\r\n", s);
         if (strcmp(s, "homeassistant/CurrentTime") == 0) {
             // Process the time
             printf("Got the time from %s, as %.*s.\r\n", s, event->data_len, event->data);
             gotTime = true;
             strncpy(s, event->data, event->data_len);
-            sscanf(s, "%d.%d.%d %d:%d:%d", &year, &month, &day, &hour, &minute, &seconds);        }
+            s[event->data_len] = 0;
+            sscanf(s, "%d.%d.%d %d:%d:%d", &year, &month, &day, &hour, &minute, &seconds);        
+        } else if (strstr(s, "command") != NULL) {
+            strncpy(s, event->data, event->data_len);
+            s[event->data_len] = 0;
+            printf("Received command %s\r\n", s);
+        }
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
