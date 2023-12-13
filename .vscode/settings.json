@@ -14,5 +14,10 @@
     "idf.port": "/dev/ttyUSB0",
     "idf.pythonBinPath": "/home/phillip/.espressif/python_env/idf5.2_py3.10_env/bin/python",
     "idf.toolsPath": "/home/phillip/.espressif",
-    "idf.flashType": "UART"
+    "idf.flashType": "UART",
+    "files.associations": {
+        "freertos.h": "c",
+        "portable.h": "c",
+        "deprecated_definitions.h": "c"
+    }
 }

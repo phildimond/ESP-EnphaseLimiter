@@ -142,20 +142,29 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         msg_id = esp_mqtt_client_subscribe(client, "homeassistant/CurrentTime", 0);
         ESP_LOGI(TAG, "Subscribe sent for time feed, msg_id=%d", msg_id);
 
-        // Send the relay configuration
-        sprintf(topic, "homeassistant/number/%s/config",config.Name);
-        sprintf(payload, "{\"unique_id\": \"T_%s\", \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\" }, \
-            \"min\":0, \"max\":15, \"retain\":true, \
-            \"command_topic\": \"homeassistant/number/%s/command\"}"
-            ,config.UID, config.DeviceID, config.Name, config.Name);
-        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
-        mqttMessagesQueued++;
-        ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
-
         // Subscribe to the command feed
         sprintf(s, "homeassistant/number/%s/command", config.Name);
         msg_id = esp_mqtt_client_subscribe(client, s, 0);
         ESP_LOGI(TAG, "Subscribe sent for the command feed, msg_id=%d", msg_id);
+
+        // Send the relay configuration
+        sprintf(topic, "homeassistant/number/%s/config",config.Name);
+        sprintf(payload, "{\"unique_id\": \"T_%s\", \
+            \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\"}, \
+            \"availability\": {\"topic\": \"homeassistant/number/%s/availability\", \"payload_available\": \"online\", \"payload_not_available\": \"offline\"}, \
+            \"min\":0, \"max\":15, \"retain\":true, \
+            \"command_topic\": \"homeassistant/number/%s/command\"}"
+            ,config.UID, config.DeviceID, config.Name, config.Name, config.Name);
+        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+        mqttMessagesQueued++;
+        ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
+
+        // Send an online message
+        sprintf(topic, "homeassistant/number/%s/availability", config.Name);
+        sprintf(payload, "online");
+        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+        mqttMessagesQueued++;
+        ESP_LOGI(TAG, "Published Envoy Relay online message successfully, msg_id=%d", msg_id);
 
         /*
 
@@ -233,6 +242,9 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
 static void mqtt_app_start(void)
 {
+    char lwTopic[100];
+    sprintf(lwTopic, "homeassistant/number/%s/availability", config.Name);
+    const char* lwMessage = "offline\0";
     esp_mqtt_client_config_t mqtt_cfg = {
         .network = {
             .reconnect_timeout_ms = 250, // Reconnect MQTT broker after this many ms
@@ -246,7 +258,15 @@ static void mqtt_app_start(void)
         },
         .session = {
             .message_retransmit_timeout = 250,  // ms transmission retry
-            .protocol_ver = MQTT_PROTOCOL_V_3_1_1
+            .protocol_ver = MQTT_PROTOCOL_V_3_1_1,
+            .keepalive = 30, // 30 second keepalive timeout
+            .last_will = {
+                .topic = lwTopic,
+                .msg = (const char*)lwMessage,
+                .msg_len = strlen(lwMessage),
+                .qos = 1,
+                .retain = 1
+            }
         },
     };
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
