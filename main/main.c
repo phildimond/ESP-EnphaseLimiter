@@ -30,8 +30,6 @@
 
 #include "main.h"
 
-#define DEBUG 1 // Set to 1 to dump debugging info to the serial port
-
 esp_err_t err;
 int retry_num = 0;
 char s[80]; // general purpose string input
@@ -46,12 +44,12 @@ bool gotTime = false;
 int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
 
 
-static const char *TAG = "MqttHaSensor";
+static const char *TAG = "EnphaseLimiter";
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
     if (error_code != 0) {
-        if (DEBUG) { printf("Last error %s: 0x%x\r\n", message, error_code); }
+        ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code); 
     }
 }
 
@@ -59,45 +57,45 @@ static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_b
 {
     if (event_id == WIFI_EVENT_STA_START)
     {
-        if (DEBUG) { printf("WIFI CONNECTING....\r\n"); }
+        ESP_LOGI(TAG, "WIFI CONNECTING...."); 
     }
     else if (event_id == WIFI_EVENT_STA_CONNECTED)
     {
-        if (DEBUG) { printf("WiFi CONNECTED\r\n"); }
+        ESP_LOGI(TAG, "WiFi CONNECTED"); 
     }
     else if (event_id == WIFI_EVENT_STA_DISCONNECTED)
     {
-        if (DEBUG) { printf("WiFi lost connection\r\n"); }
+        ESP_LOGE(TAG, "WiFi lost connection"); 
         if (retry_num < 5)
         {
             esp_wifi_connect();
             retry_num++;
-            if (DEBUG) { printf("Retrying to Connect...\r\n"); }
+            ESP_LOGI(TAG, "Retrying to Connect..."); 
         }
     }
     else if (event_id == IP_EVENT_STA_GOT_IP)
     {
         WiFiGotIP = true;
-        if (DEBUG) { printf("Wifi got IP...\n\n"); }
+        ESP_LOGI(TAG, "Wifi got IP..."); 
     }
 }
 
 void wifi_connection()
 {
     err = nvs_flash_init();
-    if (err != ESP_OK) { printf("Error at nvs_flash_init: %d = %s.\r\n", err, esp_err_to_name(err)); }
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Error at nvs_flash_init: %d = %s.", err, esp_err_to_name(err)); }
     err = esp_netif_init();                                                                    // network interdace initialization
-    if (err != ESP_OK) { printf("Error at esp_netif_init: %d = %s.\r\n", err, esp_err_to_name(err)); }
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_netif_init: %d = %s.", err, esp_err_to_name(err)); }
     err = esp_event_loop_create_default();                                                     // responsible for handling and dispatching events
-    if (err != ESP_OK) { printf("Error at esp_event_loop_create_default: %d = %s.\r\n", err, esp_err_to_name(err)); }
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_event_loop_create_default: %d = %s.", err, esp_err_to_name(err)); }
     esp_netif_create_default_wifi_sta();                                                 // sets up necessary data structs for wifi station interface
     wifi_init_config_t wifi_initiation = WIFI_INIT_CONFIG_DEFAULT();                     // sets up wifi wifi_init_config struct with default values
     err = esp_wifi_init(&wifi_initiation);                                               // wifi initialised with dafault wifi_initiation
-    if (err != ESP_OK) { printf("Error at esp_wifi_init: %d = %s.\r\n", err, esp_err_to_name(err)); }
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_wifi_init: %d = %s.", err, esp_err_to_name(err)); }
     err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL);  // creating event handler register for wifi
-    if (err != ESP_OK) { printf("Error at esp_event_handler_register(WIFI_EVENT: %d = %s.\r\n", err, esp_err_to_name(err)); }
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_event_handler_register(WIFI_EVENT: %d = %s.", err, esp_err_to_name(err)); }
     err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL); // creating event handler register for ip event
-    if (err != ESP_OK) { printf("Error at esp_event_handler_register(IP_EVENT: %d = %s.\r\n", err, esp_err_to_name(err)); }
+    if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_event_handler_register(IP_EVENT: %d = %s.", err, esp_err_to_name(err)); }
     wifi_config_t wifi_configuration = {                                                 // struct wifi_config_t var wifi_configuration
         .sta = {
             // we are sending a const char of ssid and password which we will strcpy in following line so leaving it blank
@@ -111,7 +109,7 @@ void wifi_connection()
     esp_wifi_start();       // start connection with configurations provided in funtion
     esp_wifi_set_mode(WIFI_MODE_STA);   // station mode selected
     esp_wifi_connect(); // connect with saved ssid and pass
-    printf( "wifi_init_softap finished. SSID:%s  password:%s", config.ssid, config.pass);
+    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s  password:%s", config.ssid, config.pass);
 } 
 
 /*
@@ -135,108 +133,83 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32 "", base, event_id);
 
     switch ((esp_mqtt_event_id_t)event_id) {
-    case MQTT_EVENT_CONNECTED:
-        ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+        case MQTT_EVENT_BEFORE_CONNECT:
+            ESP_LOGI(TAG, "MQTT_EVENT_BEFORE_CONNECT");
+            break;
+        case MQTT_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 
-        // Subscribe to the time feed
-        msg_id = esp_mqtt_client_subscribe(client, "homeassistant/CurrentTime", 0);
-        ESP_LOGI(TAG, "Subscribe sent for time feed, msg_id=%d", msg_id);
+            // Subscribe to the time feed
+            msg_id = esp_mqtt_client_subscribe(client, "homeassistant/CurrentTime", 0);
+            ESP_LOGI(TAG, "Subscribe sent for time feed, msg_id=%d", msg_id);
 
-        // Subscribe to the command feed
-        sprintf(s, "homeassistant/number/%s/command", config.Name);
-        msg_id = esp_mqtt_client_subscribe(client, s, 0);
-        ESP_LOGI(TAG, "Subscribe sent for the command feed, msg_id=%d", msg_id);
+            // Subscribe to the command feed
+            sprintf(s, "homeassistant/number/%s/command", config.Name);
+            msg_id = esp_mqtt_client_subscribe(client, s, 0);
+            ESP_LOGI(TAG, "Subscribe sent for the command feed, msg_id=%d", msg_id);
 
-        // Send the relay configuration
-        sprintf(topic, "homeassistant/number/%s/config",config.Name);
-        sprintf(payload, "{\"unique_id\": \"T_%s\", \
-            \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\"}, \
-            \"availability\": {\"topic\": \"homeassistant/number/%s/availability\", \"payload_available\": \"online\", \"payload_not_available\": \"offline\"}, \
-            \"min\":0, \"max\":15, \"retain\":true, \
-            \"command_topic\": \"homeassistant/number/%s/command\"}"
-            ,config.UID, config.DeviceID, config.Name, config.Name, config.Name);
-        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
-        mqttMessagesQueued++;
-        ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
+            // Send the relay configuration
+            sprintf(topic, "homeassistant/number/%s/config",config.Name);
+            sprintf(payload, "{\"unique_id\": \"T_%s\", \
+                \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\"}, \
+                \"availability\": {\"topic\": \"homeassistant/number/%s/availability\", \"payload_available\": \"online\", \"payload_not_available\": \"offline\"}, \
+                \"min\":0, \"max\":15, \"retain\":true, \
+                \"command_topic\": \"homeassistant/number/%s/command\"}"
+                ,config.UID, config.DeviceID, config.Name, config.Name, config.Name);
+            msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+            mqttMessagesQueued++;
+            ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
 
-        // Send an online message
-        sprintf(topic, "homeassistant/number/%s/availability", config.Name);
-        sprintf(payload, "online");
-        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
-        mqttMessagesQueued++;
-        ESP_LOGI(TAG, "Published Envoy Relay online message successfully, msg_id=%d", msg_id);
-
-        /*
-
-        sprintf(topic, "homeassistant/sensor/%sHumidity/config", config.Name);
-        sprintf(payload, "{\"device_class\": \"humidity\", \"state_topic\": \"homeassistant/sensor/%s/state\", \
-            \"unit_of_measurement\": \"%%\", \"value_template\": \"{{ value_json.humidity}}\",\"unique_id\": \"H_%s\", \
-            \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\" } }", config.Name, config.UID, config.DeviceID, config.Name);
-        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Humidity sensor config, set the retain flag on the message
-        mqttMessagesQueued++;
-        ESP_LOGI(TAG, "Published humidity config message successfully, msg_id=%d", msg_id);
-
-        sprintf(topic,"homeassistant/sensor/%sVoltage/config", config.Name);
-        sprintf(payload, "{\"device_class\": \"voltage\", \"state_topic\": \"homeassistant/sensor/%s/state\", \
-            \"unit_of_measurement\": \"V\", \"value_template\": \"{{ value_json.voltage}}\",\"unique_id\": \"B_%s\", \
-            \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\" } }", config.Name, config.UID, config.DeviceID, config.Name);
-        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Humidity sensor config, set the retain flag on the message
-        mqttMessagesQueued++;
-        ESP_LOGI(TAG, "Published temperature config message successfully, msg_id=%d", msg_id);
-
-        // Publish the current values
-        sprintf(topic, "homeassistant/sensor/%s/state", config.Name);
-        sprintf(payload, "{ \"temperature\": %.1f, \"humidity\": %.1f, \"voltage\": %.2f }", temperature, humidity, battVolts);
-        msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 0); // Humidity sensor config, donm't retain
-        mqttMessagesQueued++;
-        ESP_LOGI(TAG, "Published sensor state message successfully, msg_id=%d", msg_id);
-
-        sentMeasurements = true;
-        */
-        break;
-    case MQTT_EVENT_DISCONNECTED:
-        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
-        break;
-    case MQTT_EVENT_SUBSCRIBED:
-        ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-        break;
-    case MQTT_EVENT_UNSUBSCRIBED:
-        ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
-        break;
-    case MQTT_EVENT_PUBLISHED:
-        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
-        mqttMessagesQueued--;
-        break;
-    case MQTT_EVENT_DATA:
-        //ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        strncpy(s, event->topic, event->topic_len);
-        s[event->topic_len] = '\0';
-        printf("Received an event - topic was %s\r\n", s);
-        if (strcmp(s, "homeassistant/CurrentTime") == 0) {
-            // Process the time
-            printf("Got the time from %s, as %.*s.\r\n", s, event->data_len, event->data);
-            gotTime = true;
-            strncpy(s, event->data, event->data_len);
-            s[event->data_len] = 0;
-            sscanf(s, "%d.%d.%d %d:%d:%d", &year, &month, &day, &hour, &minute, &seconds);        
-        } else if (strstr(s, "command") != NULL) {
-            strncpy(s, event->data, event->data_len);
-            s[event->data_len] = 0;
-            printf("Received command %s\r\n", s);
-        }
-        break;
-    case MQTT_EVENT_ERROR:
-        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
-        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-            log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
-            log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
-            log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
-            ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
-        }
-        break;
-    default:
-        ESP_LOGI(TAG, "Other event id:%d", event->event_id);
-        break;
+            // Send an online message
+            sprintf(topic, "homeassistant/number/%s/availability", config.Name);
+            sprintf(payload, "online");
+            msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+            mqttMessagesQueued++;
+            ESP_LOGI(TAG, "Published Envoy Relay online message successfully, msg_id=%d", msg_id);
+            break;
+        case MQTT_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+            break;
+        case MQTT_EVENT_SUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_UNSUBSCRIBED:
+            ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+            break;
+        case MQTT_EVENT_PUBLISHED:
+            ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+            mqttMessagesQueued--;
+            break;
+        case MQTT_EVENT_DATA:
+            //ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+            strncpy(s, event->topic, event->topic_len);
+            s[event->topic_len] = '\0';
+            ESP_LOGV(TAG, "Received an event - topic was %s", s);
+            if (strcmp(s, "homeassistant/CurrentTime") == 0) {
+                // Process the time
+                ESP_LOGV(TAG, "Got the time from %s, as %.*s.", s, event->data_len, event->data);
+                gotTime = true;
+                strncpy(s, event->data, event->data_len);
+                s[event->data_len] = 0;
+                sscanf(s, "%d.%d.%d %d:%d:%d", &year, &month, &day, &hour, &minute, &seconds);        
+            } else if (strstr(s, "command") != NULL) {
+                strncpy(s, event->data, event->data_len);
+                s[event->data_len] = 0;
+                ESP_LOGI(TAG, "Received command %s.", s);
+            }
+            break;
+        case MQTT_EVENT_ERROR:
+            ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+            if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
+                log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
+                log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
+                ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+            }
+            break;
+        default:
+            ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+            break;
     }
 }
 
@@ -284,7 +257,7 @@ void app_main(void)
     gpio_set_pull_mode(BUTTON_PIN, GPIO_PULLUP_ONLY);
 
     if (gpio_get_level(BUTTON_PIN) == 0) {
-        printf("Button was pushed.\r\n");
+        ESP_LOGI(TAG, "Button was pushed.\r\n");
         configMode = true;
     }
 
@@ -298,8 +271,8 @@ void app_main(void)
     err = esp_vfs_spiffs_register(&spiffs_conf);
     if (err != ESP_OK)
     {
-        printf("SPIFFS Mount Failed: %s\r\n", esp_err_to_name(err));
-        printf("Reformatting the SPIFFs partition, please restart.");
+        ESP_LOGE(TAG, "SPIFFS Mount Failed: %s\r\n", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Reformatting the SPIFFs partition, please restart.");
         return;
     }
 
@@ -309,26 +282,20 @@ void app_main(void)
     {
         if (configLoad == false)
         {
-            if (DEBUG)
-            {
-                printf("Loading the configuration failed. Please enter the configuration details.\r\n");
-            }
+            ESP_LOGI(TAG, "Loading the configuration failed. Please enter the configuration details.\r\n");
         }
         else if (config.configOK == false)
         {
-            if (DEBUG)
-            {
-                printf("The stored configuration is marked as invalid. Please enter the configuration details.\r\n");
-            }
+            ESP_LOGE(TAG, "The stored configuration is marked as invalid. Please enter the configuration details.\r\n");
         }
         UserConfigEntry();
     }
-    else if (DEBUG)
+    else
     {
-        printf("Loaded config: configOK: %d, Name: %s, Device ID: %s\r\n", config.configOK, config.Name, config.DeviceID);
-        printf("               UID: %s, battVCalFactor: %fV\r\n", config.UID, config.battVCalFactor);
-        printf("               WiFi SSID: %s, WiFi Password: %s\r\n", config.ssid, config.pass);
-        printf("               MQTT URL: %s, Username: %s, Password: %s\r\n", config.mqttBrokerUrl, config.mqttUsername, config.mqttPassword);
+        ESP_LOGI(TAG, "Loaded config: configOK: %d, Name: %s, Device ID: %s", config.configOK, config.Name, config.DeviceID);
+        ESP_LOGI(TAG, "               UID: %s, battVCalFactor: %fV", config.UID, config.battVCalFactor);
+        ESP_LOGI(TAG, "               WiFi SSID: %s, WiFi Password: %s", config.ssid, config.pass);
+        ESP_LOGI(TAG, "               MQTT URL: %s, Username: %s, Password: %s", config.mqttBrokerUrl, config.mqttUsername, config.mqttPassword);
     }
     
     // If we're in config mode, ask if the user wants to change the config
@@ -355,67 +322,4 @@ void app_main(void)
         vTaskDelay(2000 / portTICK_PERIOD_MS * 100); // Sleep for 1 second
     }
 
-/*
-    // Wait for all message transmission and reception to finish, or timeout
-    bool timedOut = false;
-    printf("Waiting for MQTT transmission to complete.\r\n");
-    int64_t st = esp_timer_get_time();
-    while (!timedOut && (!sentMeasurements  || !gotTime || mqttMessagesQueued > 0 )) {
-        vTaskDelay(100 / portTICK_PERIOD_MS); 
-        if (esp_timer_get_time() - st > S_TO_uS(5)) { 
-            printf("Timed out waiting for mqtt transmission to complete. sentMeasurements=%d, gotTime=%d, mqttMessagesQueued=%d\r\n",
-                sentMeasurements, gotTime, mqttMessagesQueued);
-            timedOut = true;
-        }
-    }
-
-    // Prepare sleep time calculation if we didn't timeout on transmission
-    if (!timedOut || config.retries >= 5) {
-        uint64_t timePastQuarterHour = S_TO_uS((uint64_t)(minute * 60 + seconds));   // in microseconds
-        uint64_t quarterHour = S_TO_uS((uint64_t)(15 * 60));            // 15 minutes in microseconds
-        while (timePastQuarterHour > quarterHour) { timePastQuarterHour -= quarterHour; } // get this to the num. secs since last quarter hour
-        timeToDeepSleep = (quarterHour - timePastQuarterHour); // want to sleep to the next 15 minute time
-        // add a little hysteresis if close to 15 mins as the timer will sometimes undershoot if we just add 15 minutes, so we
-        // wake up just before then sleep for a couple of seconds and wake & send again. Battery waste!
-        if (timeToDeepSleep < S_TO_uS(60)) { timeToDeepSleep += S_TO_uS(960); } 
-
-        if (DEBUG) {
-            if (config.retries < 5) { printf("Got everything and sent everything. Preparing to sleep.\r\n"); }
-            else {printf("We've tries to send stuff after restarting 5 times, giving up. Preparing to sleep.\r\n");}
-            printf("Time value was %d minutes and %d seconds past the hour.\r\n", minute, seconds);
-            printf("Will deep sleep for %lld seconds.\r\n", uS_TO_S(timeToDeepSleep));
-            config.retries = 0;
-        }
-    } else {        
-        timeToDeepSleep = (S_TO_uS(5)); // deep sleep for 5 seconds and try again
-        config.retries++;
-        if (DEBUG) { printf("We timed out trying to send messages so we'll only sleep for 5 seconds. This will be attempt #%d.\r\n", config.retries + 1); }
-    }
-
-    // All done, save config then unmount partition and disable SPIFFS
-    SaveConfiguration();
-    err = esp_vfs_spiffs_unregister(spiffs_conf.partition_label);
-    if ( err != ESP_OK) {
-        printf("SPIFFS deregistration: Error %d = %s.\r\n", err, esp_err_to_name(err));
-    }
-    printf("SPIFFS unmounted.\r\n");
-
-    // Go to sleep
-    if (DEBUG) { printf("Sleeping for %lld seconds.\r\n", uS_TO_S(timeToDeepSleep)); }
-    if (esp_sleep_enable_timer_wakeup(timeToDeepSleep) != ESP_OK)
-    {
-        while (true)
-        {
-            printf ("Error setting sleep time. Value must be out of range.\r\n");
-        }
-    } 
-    esp_deep_sleep_start();
-
-    // If we got here the deep sleep function failed
-    while (true)
-    {
-        printf("Deep sleep initiation failed!\r\n");
-        vTaskDelay(250 / portTICK_PERIOD_MS); // 250ms sleep
-    } 
-*/
 }
