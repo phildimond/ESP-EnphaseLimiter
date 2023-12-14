@@ -33,16 +33,11 @@
 esp_err_t err;
 int retry_num = 0;
 char s[80]; // general purpose string input
-float temperature = 0.0;
-float humidity = 0.0;
-float battVolts = 0.0;
 bool WiFiGotIP = false;
-bool sentMeasurements = false;
 int mqttMessagesQueued = 0;
-uint64_t timeToDeepSleep = (S_TO_uS(SLEEPTIME));
 bool gotTime = false;
 int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
-
+uint8_t relayValue = 0x00;
 
 static const char *TAG = "EnphaseLimiter";
 
@@ -196,6 +191,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 strncpy(s, event->data, event->data_len);
                 s[event->data_len] = 0;
                 ESP_LOGI(TAG, "Received command %s.", s);
+                uint8_t val = (uint8_t)(atoi((const char*)s));
+                if (relayValue >= 0 && relayValue <= 15) {
+                    relayValue = val;
+                    ESP_LOGI(TAG, "Set relay value to $%02X", relayValue);
+                }
             }
             break;
         case MQTT_EVENT_ERROR:
@@ -255,11 +255,14 @@ void app_main(void)
     // GPIO setup
     gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BUTTON_PIN, GPIO_PULLUP_ONLY);
-
-    if (gpio_get_level(BUTTON_PIN) == 0) {
-        ESP_LOGI(TAG, "Button was pushed.\r\n");
-        configMode = true;
-    }
+    gpio_set_direction(RELAY0, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY0, 0);
+    gpio_set_direction(RELAY1, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY1, 0);
+    gpio_set_direction(RELAY2, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY2, 0);
+    gpio_set_direction(RELAY3, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY3, 0);
 
     // Initialise the SPIFFS system
     esp_vfs_spiffs_conf_t spiffs_conf = {
@@ -319,7 +322,15 @@ void app_main(void)
 
     // Loop forever, processing MQTT events.
     while(true) {
-        vTaskDelay(2000 / portTICK_PERIOD_MS * 100); // Sleep for 1 second
+        if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); ESP_LOGI(TAG, "Relay0 on."); }
+        else { gpio_set_level(RELAY0, 0); ESP_LOGI(TAG, "Relay0 off."); }
+        if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); ESP_LOGI(TAG, "Relay1 on."); }
+        else { gpio_set_level(RELAY1, 0); ESP_LOGI(TAG, "Relay1 off."); }
+        if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); ESP_LOGI(TAG, "Relay2 on."); }
+        else { gpio_set_level(RELAY2, 0); ESP_LOGI(TAG, "Relay2 off."); }
+        if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); ESP_LOGI(TAG, "Relay3 on."); }
+        else { gpio_set_level(RELAY3, 0); ESP_LOGI(TAG, "Relay3 off."); }
+        vTaskDelay(250 / portTICK_PERIOD_MS); // Sleep for 1/4 second
     }
 
 }

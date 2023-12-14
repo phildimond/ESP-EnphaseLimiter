@@ -58,7 +58,11 @@
 #include "config.h"
 
 #define SLEEPTIME 30
-#define BUTTON_PIN  27
+#define BUTTON_PIN GPIO_NUM_13
+#define RELAY0 GPIO_NUM_26
+#define RELAY1 GPIO_NUM_27
+#define RELAY2 GPIO_NUM_9
+#define RELAY3 GPIO_NUM_10
 #define S_TO_uS(s) (s * 1000000)
 #define uS_TO_S(s) (s / 1000000)
 
