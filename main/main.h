@@ -28,35 +28,6 @@
 #ifndef __MAIN_H__
 #define __MAIN_H__
 
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-#include <sys/unistd.h>
-#include <sys/stat.h>
-#include "esp_err.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "esp_spiffs.h"
-#include "esp_sleep.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "esp_check.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/timers.h"
-
-#include "esp_wifi.h" 
-#include "esp_event.h"
-#include "nvs_flash.h"
-
-#include "lwip/sockets.h"
-#include "lwip/dns.h"
-#include "lwip/netdb.h"
-#include "mqtt_client.h"
-
-#include "utilities.h"
-#include "config.h"
-
 #define SLEEPTIME 30
 #define BUTTON_PIN GPIO_NUM_13
 #define RELAY0 GPIO_NUM_26
@@ -66,11 +37,6 @@
 #define S_TO_uS(s) (s * 1000000)
 #define uS_TO_S(s) (s / 1000000)
 
-static void log_error_if_nonzero(const char *message, int error_code);
-static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-void wifi_connection(void);
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
-static void mqtt_app_start(void);
-void app_main(void);
+extern const char* TAG;
 
 #endif // __MAIN_H__

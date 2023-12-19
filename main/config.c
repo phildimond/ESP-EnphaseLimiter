@@ -31,6 +31,7 @@
 #include "lwip/netdb.h"
 #include "mqtt_client.h"
 
+#include "main.h"
 #include "config.h"
 #include "utilities.h"
 

@@ -1,16 +1,14 @@
-/* MQTT Sensor Sender for Home Assistant
+/* MQTT Relay Controller for Enphase Solar systems
    
-   Reads a temperature & humidity probe (SHT20, SDA on IO21 and SCL on IO22)
-   and sends the data to Home Assistant (or anything else) via MQTT. Hold a 
-   button low on IO27 at boot to set the configuration variables. Also sends
-   the current battery voltage read from IO34 via a divider network of 
-   2 x 1M resistors. Config allows you to calibrate the battery voltage by
-   measuring it and entering the real value. Uses a DF Robot Firebeetle 
-   ESP32-E board which has the button and battery divider on board, but
-   will operate with any ESP32 if properly compiled. It also expects a time
-   feed from MQTT on homeassistant/CurrentTime, and uses that to synchronise
-   the sensor updates to every 15 minutes (approximately, it will vary a
-   little and retransmit attempts will make it late).
+   Receives MQTT data on site power consumption and calculates an
+   appropriate generation level for an Enphase system, then sets
+   four relays that drive the relay inputs on the Envoy to use its'
+   power limiting function to curtail feed-in to the grid. The
+   export control also gets the current export price and only
+   curtails when the price is less than a threshold value. This is
+   for situations where feed in can be a negative value, ie the 
+   householder is charged by the electricity company to export to
+   the grid.
 
    Copyright 2023 Phillip C Dimond
 
@@ -27,19 +25,55 @@
    limitations under the License.
 
 */
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <sys/unistd.h>
+#include <sys/stat.h>
+#include "esp_err.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_spiffs.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+#include "esp_check.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
+
+#include "esp_wifi.h" 
+#include "esp_event.h"
+#include "nvs_flash.h"
+
+#include "lwip/sockets.h"
+#include "lwip/dns.h"
+#include "lwip/netdb.h"
+#include "mqtt_client.h"
+
+#include "utilities.h"
+#include "config.h"
 #include "main.h"
+#include "powerManager.h"
+
+static void log_error_if_nonzero(const char *message, int error_code);
+static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+void wifi_connection(void);
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
+static void mqtt_app_start(void);
+void app_main(void);
+
+const char *TAG = "EnphaseLimiter";
 
 esp_err_t err;
 int retry_num = 0;
-char s[80]; // general purpose string input
+char s[240]; // general purpose string input
 bool WiFiGotIP = false;
 int mqttMessagesQueued = 0;
 bool gotTime = false;
 int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
 uint8_t relayValue = 0x00;
-
-static const char *TAG = "EnphaseLimiter";
+powerManager_T powerValues;
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
@@ -161,12 +195,19 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
             mqttMessagesQueued++;
             ESP_LOGI(TAG, "Published Envoy Relay online message successfully, msg_id=%d", msg_id);
+
+            // Subscribe to the power data feed
+            msg_id = esp_mqtt_client_subscribe(client, "homeassistant/Power", 0);
+            mqttMessagesQueued++;
+            ESP_LOGI(TAG, "Subscribe sent for the power data feed, msg_id=%d", msg_id);
+
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
             break;
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            mqttMessagesQueued--;
             break;
         case MQTT_EVENT_UNSUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
@@ -192,10 +233,22 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 s[event->data_len] = 0;
                 ESP_LOGI(TAG, "Received command %s.", s);
                 uint8_t val = (uint8_t)(atoi((const char*)s));
-                if (relayValue >= 0 && relayValue <= 15) {
+                if (relayValue <= 15) { // Unsigned so always >= 0
                     relayValue = val;
                     ESP_LOGI(TAG, "Set relay value to $%02X", relayValue);
+                }                                
+            } else if (strcmp(s, "homeassistant/Power") == 0) {
+                strncpy(s, event->data, event->data_len);
+                s[event->data_len] = 0;
+                ESP_LOGI(TAG, "Received power data: %s", s);
+                if (PowerManager_Decode(&powerValues, (const char*)s) == 0) {
+                    ESP_LOGI(TAG, "Successfully decoded power values from JSON string.");
+                } else {
+                    ESP_LOGE(TAG, "Error decoding power values from JSON string.");
                 }
+            }
+            else {
+                ESP_LOGI(TAG, "Received unexpected message, topic %s", s);
             }
             break;
         case MQTT_EVENT_ERROR:
@@ -264,6 +317,9 @@ void app_main(void)
     gpio_set_direction(RELAY3, GPIO_MODE_OUTPUT);
     gpio_set_level(RELAY3, 0);
 
+    // init the power values
+    PowerManager_Initialise(&powerValues);
+
     // Initialise the SPIFFS system
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = "/spiffs",
@@ -322,14 +378,10 @@ void app_main(void)
 
     // Loop forever, processing MQTT events.
     while(true) {
-        if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); ESP_LOGI(TAG, "Relay0 on."); }
-        else { gpio_set_level(RELAY0, 0); ESP_LOGI(TAG, "Relay0 off."); }
-        if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); ESP_LOGI(TAG, "Relay1 on."); }
-        else { gpio_set_level(RELAY1, 0); ESP_LOGI(TAG, "Relay1 off."); }
-        if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); ESP_LOGI(TAG, "Relay2 on."); }
-        else { gpio_set_level(RELAY2, 0); ESP_LOGI(TAG, "Relay2 off."); }
-        if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); ESP_LOGI(TAG, "Relay3 on."); }
-        else { gpio_set_level(RELAY3, 0); ESP_LOGI(TAG, "Relay3 off."); }
+        if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); } else { gpio_set_level(RELAY0, 0); }
+        if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); } else { gpio_set_level(RELAY1, 0); }
+        if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); } else { gpio_set_level(RELAY2, 0); }
+        if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); } else { gpio_set_level(RELAY3, 0);  }
         vTaskDelay(250 / portTICK_PERIOD_MS); // Sleep for 1/4 second
     }
 

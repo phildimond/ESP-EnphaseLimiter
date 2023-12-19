@@ -1,2 +1,2 @@
-idf_component_register(SRCS "utilities.c" "config.c" "main.c"
+idf_component_register(SRCS "powerManager.c" "utilities.c" "config.c" "main.c"
                     INCLUDE_DIRS ".")
