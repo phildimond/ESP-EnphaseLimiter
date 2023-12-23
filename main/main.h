@@ -1,13 +1,8 @@
-/* MQTT Sensor Sender for Home Assistant
+/* MQTT Enphase Envoy power controller for Home Assistant
    
-   Reads a temperature & humidity probe (SHT20, SDA on IO21 and SCL on IO22)
-   and sends the data to Home Assistant (or anything else) via MQTT. Hold a 
-   button low on IO27 at boot to set the configuration variables. Also sends
-   the current battery voltage read from IO34 via a divider network of 
-   2 x 1M resistors. Config allows you to calibrate the battery voltage by
-   measuring it and entering the real value. Uses a DF Robot Firebeetle 
-   ESP32-E board which has the button and battery divider on board, but
-   will operate with any ESP32 if properly compiled.
+   Gets power data from Home Assistant via MQTT and uses it to set
+   the Enphase Wnvoy relay inputs to limit power production so that
+   there is no export to the grid when appropriate.
 
    Copyright 2023 Phillip C Dimond
 
@@ -37,6 +32,11 @@
 #define S_TO_uS(s) (s * 1000000)
 #define uS_TO_S(s) (s / 1000000)
 
-extern const char* TAG;
+static void log_error_if_nonzero(const char *message, int error_code);
+static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+void wifi_connection(void);
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
+static void mqtt_app_start(void);
+void app_main(void);
 
 #endif // __MAIN_H__

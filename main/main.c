@@ -51,29 +51,26 @@
 #include "lwip/netdb.h"
 #include "mqtt_client.h"
 
+#include "commonvalues.h"
 #include "utilities.h"
 #include "config.h"
 #include "main.h"
 #include "powerManager.h"
-
-static void log_error_if_nonzero(const char *message, int error_code);
-static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-void wifi_connection(void);
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
-static void mqtt_app_start(void);
-void app_main(void);
 
 const char *TAG = "EnphaseLimiter";
 
 esp_err_t err;
 int retry_num = 0;
 char s[240]; // general purpose string input
-bool WiFiGotIP = false;
+bool wiFiGotIP = false;
+bool wiFiConnected = false;
+bool mqttConnected = false;
 int mqttMessagesQueued = 0;
 bool gotTime = false;
 int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
 uint8_t relayValue = 0x00;
 powerManager_T powerValues;
+esp_mqtt_client_handle_t client;
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
@@ -84,28 +81,24 @@ static void log_error_if_nonzero(const char *message, int error_code)
 
 static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    if (event_id == WIFI_EVENT_STA_START)
-    {
-        ESP_LOGI(TAG, "WIFI CONNECTING...."); 
-    }
-    else if (event_id == WIFI_EVENT_STA_CONNECTED)
-    {
+    if (event_id == WIFI_EVENT_STA_START) {
+        ESP_LOGI(TAG, "WiFi CONNECTING...."); 
+    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
         ESP_LOGI(TAG, "WiFi CONNECTED"); 
-    }
-    else if (event_id == WIFI_EVENT_STA_DISCONNECTED)
-    {
+        wiFiConnected = true;
+    } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGE(TAG, "WiFi lost connection"); 
-        if (retry_num < 5)
-        {
+        wiFiConnected = false;
+        wiFiGotIP = false;
+        if (retry_num < 5) {
             esp_wifi_connect();
             retry_num++;
-            ESP_LOGI(TAG, "Retrying to Connect..."); 
-        }
-    }
-    else if (event_id == IP_EVENT_STA_GOT_IP)
-    {
-        WiFiGotIP = true;
-        ESP_LOGI(TAG, "Wifi got IP..."); 
+            ESP_LOGI(TAG, "Retrying to Connect, attempt # %d", retry_num); 
+        } else { ESP_LOGE(TAG, "failed to reconnect after %d attempts.", retry_num); }
+    } else if (event_id == IP_EVENT_STA_GOT_IP) {
+        wiFiGotIP = true;
+    } else {
+        ESP_LOGI(TAG, "Unhandled WiFi event %ld", event_id); 
     }
 }
 
@@ -113,7 +106,7 @@ void wifi_connection()
 {
     err = nvs_flash_init();
     if (err != ESP_OK) { ESP_LOGE(TAG, "Error at nvs_flash_init: %d = %s.", err, esp_err_to_name(err)); }
-    err = esp_netif_init();                                                                    // network interdace initialization
+    err = esp_netif_init();                                                                    // network interface initialization
     if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_netif_init: %d = %s.", err, esp_err_to_name(err)); }
     err = esp_event_loop_create_default();                                                     // responsible for handling and dispatching events
     if (err != ESP_OK) { ESP_LOGE(TAG, "Error at esp_event_loop_create_default: %d = %s.", err, esp_err_to_name(err)); }
@@ -166,6 +159,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             ESP_LOGI(TAG, "MQTT_EVENT_BEFORE_CONNECT");
             break;
         case MQTT_EVENT_CONNECTED:
+            mqttConnected = true;
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 
             // Subscribe to the time feed
@@ -203,7 +197,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
             break;
         case MQTT_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+            mqttConnected = false;
+            ESP_LOGE(TAG, "MQTT_EVENT_DISCONNECTED");
             break;
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
@@ -231,18 +226,18 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             } else if (strstr(s, "command") != NULL) {
                 strncpy(s, event->data, event->data_len);
                 s[event->data_len] = 0;
-                ESP_LOGI(TAG, "Received command %s.", s);
+                ESP_LOGV(TAG, "Received command %s.", s);
                 uint8_t val = (uint8_t)(atoi((const char*)s));
                 if (relayValue <= 15) { // Unsigned so always >= 0
                     relayValue = val;
-                    ESP_LOGI(TAG, "Set relay value to $%02X", relayValue);
+                    ESP_LOGV(TAG, "Set relay value to $%02X", relayValue);
                 }                                
             } else if (strcmp(s, "homeassistant/Power") == 0) {
                 strncpy(s, event->data, event->data_len);
                 s[event->data_len] = 0;
-                ESP_LOGI(TAG, "Received power data: %s", s);
+                ESP_LOGV(TAG, "Received power data: %s", s);
                 if (PowerManager_Decode(&powerValues, (const char*)s) == 0) {
-                    ESP_LOGI(TAG, "Successfully decoded power values from JSON string.");
+                    ESP_LOGV(TAG, "Successfully decoded power values from JSON string.");
                 } else {
                     ESP_LOGE(TAG, "Error decoding power values from JSON string.");
                 }
@@ -252,16 +247,17 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             }
             break;
         case MQTT_EVENT_ERROR:
-            ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+            ESP_LOGE(TAG, "MQTT_EVENT_ERROR. ");
             if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
                 log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
                 log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
                 log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
                 ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+                ESP_LOGI(TAG, "WiFi connected = %d", wiFiConnected);
             }
             break;
         default:
-            ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+            ESP_LOGE(TAG, "Other event id:%d", event->event_id);
             break;
     }
 }
@@ -295,10 +291,11 @@ static void mqtt_app_start(void)
             }
         },
     };
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    client = esp_mqtt_client_init(&mqtt_cfg);
     /* The last argument may be used to pass data to the event handler, in this example mqtt_event_handler */
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_mqtt_client_start(client);
+    err = esp_mqtt_client_start(client);
+    if (err != ESP_OK) { ESP_LOGE(TAG, "MQTT client start error: %s", esp_err_to_name(err)); }
 }
 
 void app_main(void)
@@ -369,15 +366,26 @@ void app_main(void)
     // Start WiFi, wait for WiFi to connect and get IP
     wifi_connection();
     int loops = 0;
-    while (loops < 10000 && !WiFiGotIP) {
+    while (loops < 10000 && !wiFiGotIP) {
         vTaskDelay(2000 / portTICK_PERIOD_MS); // Wait 10 millseconds
     }
 
-    // Start mqtt
+    // Start mqtt, then wait up to 40 * 0.25 = 10 seconds for it to start
     mqtt_app_start();
+    int mqttWaits = 0;
+    while (!mqttConnected && mqttWaits < 40) { vTaskDelay(250 / portTICK_PERIOD_MS); mqttWaits++; } 
+    ESP_LOGI(TAG, "MQTT client started after %f seconds.", ((float)mqttWaits) * 0.25);
 
     // Loop forever, processing MQTT events.
     while(true) {
+        if (!mqttConnected) { 
+            ESP_LOGE(TAG, "Detected the MQTT client is offline in the main loop. Attempting to stop, destroy then restart it.");
+            err = esp_mqtt_client_stop(client);
+            if (err != ESP_OK) { ESP_LOGE(TAG, "MQTT client stop error: %s", esp_err_to_name(err)); }
+            err = esp_mqtt_client_destroy(client);
+            if (err != ESP_OK) { ESP_LOGE(TAG, "MQTT client destroy error: %s", esp_err_to_name(err)); }
+            mqtt_app_start();
+        }        
         if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); } else { gpio_set_level(RELAY0, 0); }
         if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); } else { gpio_set_level(RELAY1, 0); }
         if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); } else { gpio_set_level(RELAY2, 0); }

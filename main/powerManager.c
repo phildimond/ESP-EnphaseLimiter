@@ -22,7 +22,7 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "cJSON.h"
-#include "main.h"
+#include "commonvalues.h"
 #include "powerManager.h"
 
 // -----------------------------------------------
@@ -67,9 +67,12 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
     p = cJSON_GetObjectItem(monitor_json, "importPrice");
     if (cJSON_IsNumber(p))
     {
-        ESP_LOGI(TAG, "Import price is %f", p->valuedouble);
+        ESP_LOGV(TAG, "Import price is %f", p->valuedouble);
     }
-    free(monitor_json); 
+
+    
+    //if (monitor_json != NULL) { cJSON_Delete(monitor_json); }
+    if (monitor_json != NULL) { cJSON_Delete(monitor_json); }
 
     return 0;
 }
