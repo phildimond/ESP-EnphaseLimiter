@@ -241,6 +241,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 } else {
                     ESP_LOGE(TAG, "Error decoding power values from JSON string.");
                 }
+                // Send an online message
+                sprintf(topic, "homeassistant/number/%s/availability", config.Name);
+                sprintf(payload, "online");
+                msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+                mqttMessagesQueued++;
+                ESP_LOGI(TAG, "Published Envoy Relay online message successfully, msg_id=%d", msg_id);
             }
             else {
                 ESP_LOGI(TAG, "Received unexpected message, topic %s", s);

@@ -20,6 +20,7 @@
 */
 
 #include <stdio.h>
+#include <string.h>
 #include "esp_log.h"
 #include "cJSON.h"
 #include "commonvalues.h"
@@ -51,28 +52,68 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
 {
     int status = 0;
     
-    cJSON *monitor_json = cJSON_Parse(s);
+    cJSON* monitor_json = cJSON_Parse(s);
     
     if (monitor_json == NULL) {
         const char *error_ptr = cJSON_GetErrorPtr();
         if (error_ptr != NULL)
         {
-            ESP_LOGE(TAG, "Error before: %s\n", error_ptr);
+            ESP_LOGE(TAG, "Error decoding JSON power data. Error before: %s\n", error_ptr);
         }
-        status = 0;
         return 1;
     }
 
     const cJSON* p = NULL;
     p = cJSON_GetObjectItem(monitor_json, "importPrice");
-    if (cJSON_IsNumber(p))
-    {
-        ESP_LOGV(TAG, "Import price is %f", p->valuedouble);
+    if (cJSON_IsNumber(p)) { instance->importPrice = p->valuedouble;}
+    p = cJSON_GetObjectItem(monitor_json, "exportPrice");
+    if (cJSON_IsNumber(p)) { instance->exportPrice = p->valuedouble;}
+    p = cJSON_GetObjectItem(monitor_json, "powerValues");
+    if (cJSON_IsArray(p)) { 
+        const cJSON* ai = NULL;
+        int len = cJSON_GetArraySize(p);
+        char name[80];
+        char units[80];
+        float val = 0.0;
+        for (int i = 0; i < len; i++) {
+            ai = cJSON_GetArrayItem(p, i);
+            const cJSON* n = cJSON_GetObjectItem(ai, "name");
+            const cJSON* u = cJSON_GetObjectItem(ai, "units");
+            const cJSON* v = cJSON_GetObjectItem(ai, "value");
+            if (n == NULL || u == NULL || v == NULL) {
+                status = 1;
+                ESP_LOGE(TAG, "Error decoding JSON power data. Error in values array item %d", i + 1);
+                break;
+            } else {
+                if (cJSON_IsString(n)) { strcpy(name, cJSON_GetStringValue(n)); } else { status = 1; }
+                if (cJSON_IsString(u)) { strcpy(units, cJSON_GetStringValue(u)); } else { status = 1; }
+                if (cJSON_IsNumber(v)) { val = v->valuedouble; }
+                if (status == 0) {
+                    if (strcmp(units, "kW") != 0) {val /= 1000.0; } // convert to kW is needed
+                    if (strcmp(name, "House") == 0) { instance->housePowerkW = val; }
+                    else if (strcmp(name, "Solar") == 0) { instance->solarPowerkW = val; }
+                    else if (strcmp(name, "Battery") == 0) { instance->batteryPowerkW = val; }
+                    else if (strcmp(name, "Grid") == 0) { instance->gridPowerkW = val; }
+                    else {
+                        ESP_LOGE(TAG, "Error decoding JSON power data. Element %d had unknown type %s.", i, name);
+                        status = 1;
+                    }
+                }
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "Error decoding JSON power data. Couldn't find the powervalues array tag.");
+        status = 1;
+    }
+
+    if (status == 0) {
+        ESP_LOGI(TAG, "Power data: Import = $%0.2f, Export = $%0.2f, House = %0.3fkW, Grid = %0.3fkW, Solar = %0.3fkW, Battery = %0.3fkW",
+            instance->importPrice, instance->exportPrice, instance->housePowerkW, instance->gridPowerkW, instance->solarPowerkW, instance->batteryPowerkW);
     }
 
     
     //if (monitor_json != NULL) { cJSON_Delete(monitor_json); }
     if (monitor_json != NULL) { cJSON_Delete(monitor_json); }
 
-    return 0;
+    return status;
 }
