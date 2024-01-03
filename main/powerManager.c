@@ -58,7 +58,7 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
         const char *error_ptr = cJSON_GetErrorPtr();
         if (error_ptr != NULL)
         {
-            ESP_LOGE(TAG, "Error decoding JSON power data. Error before: %s\n", error_ptr);
+            ESP_LOGE(TAG, "Error decoding JSON power data. Received: %s\r\nError before: %s\r\n", s, error_ptr);
         }
         return 1;
     }
@@ -68,6 +68,8 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
     if (cJSON_IsNumber(p)) { instance->importPrice = p->valuedouble;}
     p = cJSON_GetObjectItem(monitor_json, "exportPrice");
     if (cJSON_IsNumber(p)) { instance->exportPrice = p->valuedouble;}
+    p = cJSON_GetObjectItem(monitor_json, "batteryLevel");
+    if (cJSON_IsNumber(p)) { instance->batteryLevel = p->valuedouble;}
     p = cJSON_GetObjectItem(monitor_json, "powerValues");
     if (cJSON_IsArray(p)) { 
         const cJSON* ai = NULL;
@@ -107,8 +109,8 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
     }
 
     if (status == 0) {
-        ESP_LOGI(TAG, "Power data: Import = $%0.2f, Export = $%0.2f, House = %0.3fkW, Grid = %0.3fkW, Solar = %0.3fkW, Battery = %0.3fkW",
-            instance->importPrice, instance->exportPrice, instance->housePowerkW, instance->gridPowerkW, instance->solarPowerkW, instance->batteryPowerkW);
+        ESP_LOGI(TAG, "Power data: Import = $%0.2f, Export = $%0.2f, BatteryLevel=%0.1f%%, House = %0.3fkW, Grid = %0.3fkW, Solar = %0.3fkW, Battery = %0.3fkW",
+            instance->importPrice, instance->exportPrice, instance->batteryLevel, instance->housePowerkW, instance->gridPowerkW, instance->solarPowerkW, instance->batteryPowerkW);
     }
 
     

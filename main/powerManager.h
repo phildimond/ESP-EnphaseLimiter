@@ -4,6 +4,7 @@
 typedef struct {
     float importPrice;
     float exportPrice;
+    float batteryLevel;
     float gridPowerkW;
     float housePowerkW;
     float solarPowerkW;
