@@ -38,6 +38,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_system.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/timers.h"
@@ -50,6 +51,8 @@
 #include "lwip/dns.h"
 #include "lwip/netdb.h"
 #include "mqtt_client.h"
+
+#include "esp_task_wdt.h"
 
 #include "commonvalues.h"
 #include "utilities.h"
@@ -311,6 +314,21 @@ void app_main(void)
 {
     bool configMode = false;
 
+#if !CONFIG_ESP_TASK_WDT_INIT
+    // If the TWDT was not initialized automatically on startup (probably from menuconfig), manually intialize it now
+    esp_task_wdt_config_t wdConfig = {
+        .timeout_ms = TWDT_TIMEOUT_MS,
+        .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,    // Bitmask of all cores
+        .trigger_panic = false,
+    };
+    err = esp_task_wdt_init(&wdConfig);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "FATAL error initialising the watchdog. Resetting. Errror = %d: %s", err, esp_err_to_name(err));
+        vTaskDelay(5000 / portTICK_PERIOD_MS); // Sleep for 5 seconds in case someone is trying to read the error
+        esp_restart();
+    }
+#endif // !CONFIG_ESP_TASK_WDT_INIT
+
     // GPIO setup
     gpio_set_direction(BUTTON_PIN, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BUTTON_PIN, GPIO_PULLUP_ONLY);
@@ -400,6 +418,15 @@ void app_main(void)
         if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); } else { gpio_set_level(RELAY2, 0); }
         if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); } else { gpio_set_level(RELAY3, 0);  }
         vTaskDelay(250 / portTICK_PERIOD_MS); // Sleep for 1/4 second
+
+#if !CONFIG_ESP_TASK_WDT_INIT
+        // Reset the watchdog if we manually configured it.
+        err = esp_task_wdt_reset();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Error resetting the watchdog: %d = %s", err, esp_err_to_name(err));
+        }
+#endif // #if !CONFIG_ESP_TASK_WDT_INIT
+
     }
 
 }

@@ -24,6 +24,8 @@
 #define __MAIN_H__
 
 #define SLEEPTIME 30
+#define TWDT_TIMEOUT_MS 10000 // Watchdog timeout in milliseconds
+
 #define BUTTON_PIN GPIO_NUM_13
 #define RELAY0 GPIO_NUM_26
 #define RELAY1 GPIO_NUM_27
