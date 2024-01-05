@@ -26,6 +26,9 @@
 #include "commonvalues.h"
 #include "powerManager.h"
 
+// Relay power % table
+const float relayPower[16] = {1.0, 0.94, 0.88, 0.82, 0.76, 0.64, 0.58, 0.52, 0.46, 0.40, 0.34, 0.28, 0.22, 0.16, 0.10};
+
 // -----------------------------------------------
 // Initialise a power manager instance
 // -----------------------------------------------

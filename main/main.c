@@ -72,6 +72,7 @@ int mqttMessagesQueued = 0;
 bool gotTime = false;
 int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
 uint8_t relayValue = 0x00;
+uint8_t oldRelayValue = 0x00;
 powerManager_T powerValues;
 esp_mqtt_client_handle_t client;
 
@@ -242,6 +243,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGV(TAG, "Received command %s.", s);
                 uint8_t val = (uint8_t)(atoi((const char*)s));
                 if (relayValue <= 15) { // Unsigned so always >= 0
+                    oldRelayValue = relayValue;
                     relayValue = val;
                     ESP_LOGV(TAG, "Set relay value to $%02X", relayValue);
                 }                                
@@ -413,11 +415,16 @@ void app_main(void)
             if (err != ESP_OK) { ESP_LOGE(TAG, "MQTT client destroy error: %s", esp_err_to_name(err)); }
             mqtt_app_start();
         }        
-        if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); } else { gpio_set_level(RELAY0, 0); }
-        if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); } else { gpio_set_level(RELAY1, 0); }
-        if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); } else { gpio_set_level(RELAY2, 0); }
-        if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); } else { gpio_set_level(RELAY3, 0);  }
-        vTaskDelay(250 / portTICK_PERIOD_MS); // Sleep for 1/4 second
+
+        // Has the relay value changed?
+        if (oldRelayValue != relayValue) {
+            ESP_LOGI(TAG, "Relay value changed from %u to %u ... setting relays.", oldRelayValue, relayValue);
+            oldRelayValue = relayValue;
+            if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); } else { gpio_set_level(RELAY0, 0); }
+            if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); } else { gpio_set_level(RELAY1, 0); }
+            if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); } else { gpio_set_level(RELAY2, 0); }
+            if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); } else { gpio_set_level(RELAY3, 0);  }
+        }
 
 #if !CONFIG_ESP_TASK_WDT_INIT
         // Reset the watchdog if we manually configured it.
@@ -426,6 +433,9 @@ void app_main(void)
             ESP_LOGE(TAG, "Error resetting the watchdog: %d = %s", err, esp_err_to_name(err));
         }
 #endif // #if !CONFIG_ESP_TASK_WDT_INIT
+
+        // My app loop sleep, 250ms
+        vTaskDelay(250 / portTICK_PERIOD_MS);
 
     }
 
