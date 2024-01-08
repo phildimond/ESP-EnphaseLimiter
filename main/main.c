@@ -74,6 +74,7 @@ int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
 uint8_t relayValue = 0x00;
 uint8_t oldRelayValue = 0x00;
 powerManager_T powerValues;
+bool powerValuesUpdated = false;
 esp_mqtt_client_handle_t client;
 
 static void log_error_if_nonzero(const char *message, int error_code)
@@ -253,6 +254,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGV(TAG, "Received power data: %s", s);
                 if (PowerManager_Decode(&powerValues, (const char*)s) == 0) {
                     ESP_LOGV(TAG, "Successfully decoded power values from JSON string.");
+                    powerValuesUpdated = true;    // Flag that we have received valid power values
                 } else {
                     ESP_LOGE(TAG, "Error decoding power values from JSON string.");
                 }
@@ -416,14 +418,32 @@ void app_main(void)
             mqtt_app_start();
         }        
 
+        // Calculate the desired relay settings if we have received valid power information
+        if (powerValuesUpdated) {
+            relayValue = CalculateRelaySettings(&powerValues, relayValue);
+            powerValuesUpdated = false;
+        }
+
         // Has the relay value changed?
-        if (oldRelayValue != relayValue) {
+        if (relayValue != oldRelayValue) {
             ESP_LOGI(TAG, "Relay value changed from %u to %u ... setting relays.", oldRelayValue, relayValue);
-            oldRelayValue = relayValue;
+            oldRelayValue = relayValue; // update the relay value
+
+            // Set the relays
             if (relayValue & 0x01) { gpio_set_level(RELAY0, 1); } else { gpio_set_level(RELAY0, 0); }
             if (relayValue & 0x02) { gpio_set_level(RELAY1, 1); } else { gpio_set_level(RELAY1, 0); }
             if (relayValue & 0x04) { gpio_set_level(RELAY2, 1); } else { gpio_set_level(RELAY2, 0); }
             if (relayValue & 0x08) { gpio_set_level(RELAY3, 1); } else { gpio_set_level(RELAY3, 0);  }
+
+            // Update the MQTT relay value message
+            char topic[80];
+            char payload[80];
+            sprintf(topic, "homeassistant/number/%s/command", config.Name);
+            sprintf(payload, "%u", relayValue);
+            int msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+            mqttMessagesQueued++;
+            ESP_LOGI(TAG, "Published Envoy Relay command message successfully, msg_id=%d, topic=%s, payload=%s", msg_id, topic, payload);
+
         }
 
 #if !CONFIG_ESP_TASK_WDT_INIT

@@ -28,6 +28,8 @@
 
 // Relay power % table
 const float relayPower[16] = {1.0, 0.94, 0.88, 0.82, 0.76, 0.64, 0.58, 0.52, 0.46, 0.40, 0.34, 0.28, 0.22, 0.16, 0.10};
+const float maxSolarPowerkW = 8.2;
+const float maxBatteryChargekW = 5.0;
 
 // -----------------------------------------------
 // Initialise a power manager instance
@@ -121,4 +123,63 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
     if (monitor_json != NULL) { cJSON_Delete(monitor_json); }
 
     return status;
+}
+
+// -----------------------------------------------------------------------------
+// Calculate the relay settings needed to zero the solar system's export
+// 
+// Decodes a powerManager struct from a JSON string
+//
+// Params - instance - struct toi base calculations on
+//        - currentRelayValue - the current relay setting
+// Returns- an 8 bit value with the required relay setting
+// -----------------------------------------------------------------------------
+uint8_t CalculateRelaySettings(powerManager_T* instance, uint8_t currentRelayValue)
+{
+    float loadkW = 0;
+
+    // We want to avoid battery drain (ie solar first). Calculation will depend on the battery state.
+    // If it's less than fully charged we want the solar to feed the house load and provide maximum
+    // battery charging current (if it can). If the battery is charged, then only the house load
+    // matters, as even if the battery has started to drain then it should be going to the house if
+    // we are limiting export. If we are limiting export but the battery is exporting, there is something
+    // wrong, and we should ignore it by just covering the house load. The battery manufacturer or 
+    // owner may be doing something we don't know about and it's not our place to stop it.
+    if (instance->batteryLevel < 100.0) {
+        // Battery is charging (or wants to be) - load is house plus max battery can charge at
+        loadkW = instance->housePowerkW + maxBatteryChargekW;
+    } else {
+        // Battery is full but *may* be draining - load is house plus +ve battery
+        if (instance->batteryPowerkW <= 0) {
+            loadkW = instance->housePowerkW;
+        } else {
+            loadkW = instance->housePowerkW + instance->batteryPowerkW;
+        }
+    }
+
+    // Possible maximum solar right now
+    float solarMaxPossibleNow = instance->solarPowerkW / relayPower[currentRelayValue];
+
+    // Desired production percentage. Avoid exactly zero max possible solar div by zero error
+    if (solarMaxPossibleNow == 0) { solarMaxPossibleNow = 0.001; }
+    float desiredSolarProductionPc = loadkW / solarMaxPossibleNow;
+
+    // Find the appropriate load setting by going through the values and finding the one that is closest
+    // to and higher than the desired percentage. We will assume the index of zero so we will have the
+    // maximum production if we don't find one.
+    uint8_t desiredIndex = 0;
+    for (int i = 0; i < 16; i++) {
+        ESP_LOGI(TAG, "i = %u, desiredIndex = %u, solamMaxPossibleNow = %0.3fkW, prod this index = %0.3fkW", 
+            i, desiredIndex, solarMaxPossibleNow, solarMaxPossibleNow * relayPower[i]);
+        if (i > desiredIndex && relayPower[i] > desiredSolarProductionPc) {
+            desiredIndex = i;
+        }
+    }
+
+    ESP_LOGI(TAG, "Results of calculation... Maximum possible solar generation now = %0.3fkW", solarMaxPossibleNow);
+    ESP_LOGI(TAG, "                          Desired production to cover house & battery charge is %0.3fkW", loadkW);
+    ESP_LOGI(TAG, "                          Selected relay = %u which is %0.0f%% power, which is %0.3fkw.", 
+        desiredIndex, relayPower[desiredIndex] * 100.0, solarMaxPossibleNow * relayPower[desiredIndex]);
+
+    return desiredIndex;
 }

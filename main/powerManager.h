@@ -13,5 +13,6 @@ typedef struct {
 
 void PowerManager_Initialise(powerManager_T* instance);
 int PowerManager_Decode(powerManager_T*  instance, const char* s);
+uint8_t CalculateRelaySettings(powerManager_T* instance, uint8_t currentRelayValue);
 
 #endif // __POWERMANAGER_C__
