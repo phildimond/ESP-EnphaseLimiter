@@ -161,7 +161,7 @@ uint8_t CalculateRelaySettings(powerManager_T* instance, uint8_t currentRelayVal
     float solarMaxPossibleNow = instance->solarPowerkW / relayPower[currentRelayValue];
 
     // Desired production percentage. Avoid exactly zero max possible solar div by zero error
-    if (solarMaxPossibleNow == 0) { solarMaxPossibleNow = 0.001; }
+    if (solarMaxPossibleNow == 0) { solarMaxPossibleNow = 0.100; }
     float desiredSolarProductionPc = loadkW / solarMaxPossibleNow;
 
     // Find the appropriate load setting by going through the values and finding the one that is closest
