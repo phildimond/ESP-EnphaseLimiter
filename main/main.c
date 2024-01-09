@@ -182,8 +182,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\"}, \
                 \"availability\": {\"topic\": \"homeassistant/number/%s/availability\", \"payload_available\": \"online\", \"payload_not_available\": \"offline\"}, \
                 \"min\":0, \"max\":15, \"retain\":true, \
-                \"command_topic\": \"homeassistant/number/%s/command\"}"
-                ,config.UID, config.DeviceID, config.Name, config.Name, config.Name);
+                \"command_topic\": \"homeassistant/number/%s/command\", \"state_topic\": \"homeassistant/number/%s/command\"}"
+                ,config.UID, config.DeviceID, config.Name, config.Name, config.Name, config.Name);
             msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
             mqttMessagesQueued++;
             ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
