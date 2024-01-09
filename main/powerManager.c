@@ -138,6 +138,10 @@ uint8_t CalculateRelaySettings(powerManager_T* instance, uint8_t currentRelayVal
 {
     float loadkW = 0;
 
+    // Get rid of any negative solar generation or house consumption as it's impossible
+    if (instance->solarPowerkW < 0.0) { instance->solarPowerkW = 0.0; }
+    if (instance->housePowerkW < 0.0) { instance->housePowerkW = 0.0; }
+
     // We want to avoid battery drain (ie solar first). Calculation will depend on the battery state.
     // If it's less than fully charged we want the solar to feed the house load and provide maximum
     // battery charging current (if it can). If the battery is charged, then only the house load
@@ -161,7 +165,7 @@ uint8_t CalculateRelaySettings(powerManager_T* instance, uint8_t currentRelayVal
     float solarMaxPossibleNow = instance->solarPowerkW / relayPower[currentRelayValue];
 
     // Desired production percentage. Avoid exactly zero max possible solar div by zero error
-    if (solarMaxPossibleNow == 0) { solarMaxPossibleNow = 0.100; }
+    if (solarMaxPossibleNow == 0.0) { solarMaxPossibleNow = 0.100; }
     float desiredSolarProductionPc = loadkW / solarMaxPossibleNow;
 
     // Find the appropriate load setting by going through the values and finding the one that is closest
@@ -170,7 +174,8 @@ uint8_t CalculateRelaySettings(powerManager_T* instance, uint8_t currentRelayVal
     uint8_t desiredIndex = 0;
     for (int i = 0; i < 16; i++) {
         ESP_LOGI(TAG, "i = %u, desiredIndex = %u, solamMaxPossibleNow = %0.3fkW, prod this index = %0.3fkW", 
-            i, desiredIndex, solarMaxPossibleNow, solarMaxPossibleNow * relayPower[i]);
+            i, desiredIndex, solarMaxPossibleNow, 
+            (solarMaxPossibleNow * relayPower[i] > maxSolarPowerkW) ? maxSolarPowerkW : solarMaxPossibleNow * relayPower[i]);
         if (i > desiredIndex && relayPower[i] > desiredSolarProductionPc) {
             desiredIndex = i;
         }
