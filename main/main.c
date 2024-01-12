@@ -75,6 +75,7 @@ uint8_t relayValue = 0x00;
 uint8_t oldRelayValue = 0x00;
 powerManager_T powerValues;
 bool powerValuesUpdated = false;
+bool curtailmentEnabled = false;
 esp_mqtt_client_handle_t client;
 
 static void log_error_if_nonzero(const char *message, int error_code)
@@ -174,15 +175,33 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             // Subscribe to the command feed
             sprintf(s, "homeassistant/number/%s/command", config.Name);
             msg_id = esp_mqtt_client_subscribe(client, s, 0);
-            ESP_LOGI(TAG, "Subscribe sent for the command feed, msg_id=%d", msg_id);
+            ESP_LOGI(TAG, "Subscribe sent for the relay number command feed, msg_id=%d", msg_id);
 
-            // Send the relay configuration
+            // Subscribe to the switch feed
+            sprintf(s, "homeassistant/switch/%s/command", config.Name);
+            msg_id = esp_mqtt_client_subscribe(client, s, 0);
+            ESP_LOGI(TAG, "Subscribe sent for the switch command feed, msg_id=%d", msg_id);
+
+            // Send the relay configuration.
+            // Use the same command and state topics so we don't have to echo commands to state
             sprintf(topic, "homeassistant/number/%s/config",config.Name);
             sprintf(payload, "{\"unique_id\": \"T_%s\", \
                 \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\"}, \
                 \"availability\": {\"topic\": \"homeassistant/number/%s/availability\", \"payload_available\": \"online\", \"payload_not_available\": \"offline\"}, \
                 \"min\":0, \"max\":15, \"retain\":true, \
                 \"command_topic\": \"homeassistant/number/%s/command\", \"state_topic\": \"homeassistant/number/%s/command\"}"
+                ,config.UID, config.DeviceID, config.Name, config.Name, config.Name, config.Name);
+            msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
+            mqttMessagesQueued++;
+            ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
+
+            // Send the enable switch configuration. Use the relay number availability topic
+            // Use the same command and state topics so we don't have to echo commands to state
+            sprintf(topic, "homeassistant/switch/%s/config",config.Name);
+            sprintf(payload, "{\"unique_id\": \"S_%s\", \"retain\": \"true\", \
+                \"device\": {\"identifiers\": [\"%s\"], \"name\": \"%s\"}, \
+                \"availability\": {\"topic\": \"homeassistant/number/%s/availability\", \"payload_available\": \"online\", \"payload_not_available\": \"offline\"}, \
+                \"command_topic\": \"homeassistant/switch/%s/command\", \"state_topic\": \"homeassistant/switch/%s/command\"}"
                 ,config.UID, config.DeviceID, config.Name, config.Name, config.Name, config.Name);
             msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
             mqttMessagesQueued++;
@@ -239,15 +258,26 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 }
 
             } else if (strstr(s, "command") != NULL) {
-                strncpy(s, event->data, event->data_len);
-                s[event->data_len] = 0;
-                ESP_LOGV(TAG, "Received command %s.", s);
-                uint8_t val = (uint8_t)(atoi((const char*)s));
-                if (relayValue <= 15) { // Unsigned so always >= 0
-                    oldRelayValue = relayValue;
-                    relayValue = val;
-                    ESP_LOGV(TAG, "Set relay value to $%02X", relayValue);
-                }                                
+                if (strstr(s, "number")) {
+                    strncpy(s, event->data, event->data_len);
+                    s[event->data_len] = 0;
+                    ESP_LOGV(TAG, "Received command %s.", s);
+                    uint8_t val = (uint8_t)(atoi((const char*)s));
+                    if (relayValue <= 15) { // Unsigned so always >= 0
+                        oldRelayValue = relayValue;
+                        relayValue = val;
+                        ESP_LOGV(TAG, "Set relay value to $%02X", relayValue);
+                    }      
+                } else if (strstr(s, "switch")) {
+                    // Switch state changed from Home Assistant
+                    strncpy(s, event->data, event->data_len);
+                    s[event->data_len] = 0;
+                    if (strstr(s, "ON")) { curtailmentEnabled  = true; } else { curtailmentEnabled = false; }
+                    ESP_LOGI(TAG, "Curtailment switch state change received %s - changed to %d", s, curtailmentEnabled);
+                } else {
+                    // Don't know what this topic was
+                    ESP_LOGE(TAG, "Received unknown command topic: %s", s);
+                }
             } else if (strcmp(s, "homeassistant/Power") == 0) {
                 strncpy(s, event->data, event->data_len);
                 s[event->data_len] = 0;
@@ -418,8 +448,11 @@ void app_main(void)
             mqtt_app_start();
         }        
 
-        // Calculate the desired relay settings if we have received valid power information
-        if (powerValuesUpdated) {
+        // If curtailment is not enabled force the relay value to zero (maximum solar output)
+        if (curtailmentEnabled == false) {
+            relayValue = 0;
+        } else if (powerValuesUpdated) {
+            // We're curtailing - calculate the desired relay settings if we have received valid power information
             relayValue = CalculateRelaySettings(&powerValues, relayValue);
             powerValuesUpdated = false;
         }
