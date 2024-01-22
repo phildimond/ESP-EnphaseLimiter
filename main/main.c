@@ -72,6 +72,7 @@ int mqttMessagesQueued = 0;
 bool gotTime = false;
 int year = 0, month = 0, day = 0, hour = 0, minute = 0, seconds = 0;
 uint8_t relayValue = 0x00;
+uint8_t commandedRelayValue = 0x00;
 uint8_t oldRelayValue = 0x00;
 powerManager_T powerValues;
 bool powerValuesUpdated = false;
@@ -282,7 +283,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                     ESP_LOGV(TAG, "Received command %s.", s);
                     uint8_t val = (uint8_t)(atoi((const char*)s));
                     // use this value to set the relays if we're in manual control
-                    if (manualControl == true && relayValue <= 15) { // Unsigned so always >= 0
+                    commandedRelayValue = val;
+                    if (manualControl == true && val <= 15) { // Unsigned so always >= 0
                         oldRelayValue = relayValue;
                         relayValue = val;
                         ESP_LOGV(TAG, "Set relay value to $%02X", relayValue);
@@ -292,7 +294,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                     if (strstr(s, "manual")) { // Enable switch?
                         strncpy(s, event->data, event->data_len);
                         s[event->data_len] = 0;
-                        if (strstr(s, "ON")) { manualControl = true; } else { manualControl = false; }
+                        if (strstr(s, "ON")) { 
+                            manualControl = true; 
+                            relayValue = commandedRelayValue;
+                        } else { manualControl = false; }
                         ESP_LOGI(TAG, "Manual control switch state change received %s - changed to %d", s, manualControl);
                     } else { // must be the curtailment switch
                         strncpy(s, event->data, event->data_len);
