@@ -102,7 +102,10 @@ static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_b
             esp_wifi_connect();
             retry_num++;
             ESP_LOGI(TAG, "Retrying to Connect, attempt # %d", retry_num); 
-        } else { ESP_LOGE(TAG, "failed to reconnect after %d attempts.", retry_num); }
+        } else { 
+            ESP_LOGE(TAG, "Failed to reconnect after %d attempts. Restarting the device", retry_num); 
+            esp_restart();
+        }
     } else if (event_id == IP_EVENT_STA_GOT_IP) {
         wiFiGotIP = true;
     } else {
@@ -411,7 +414,6 @@ void app_main(void)
 
     // If the config button is pressed (or jumped to ground) go into config mode.
     if (gpio_get_level(BUTTON_PIN) == 0) { ESP_LOGI(TAG, "Button pressed, config mode active"); configMode = true; }
-    else {ESP_LOGI(TAG, "Button not pressed."); }
 
     // Initialise the SPIFFS system
     esp_vfs_spiffs_conf_t spiffs_conf = {
@@ -462,8 +464,8 @@ void app_main(void)
     // Start WiFi, wait for WiFi to connect and get IP
     wifi_connection();
     int loops = 0;
-    while (loops < 10000 && !wiFiGotIP) {
-        vTaskDelay(2000 / portTICK_PERIOD_MS); // Wait 10 millseconds
+    while (loops < 30 && !wiFiGotIP) {
+        vTaskDelay(2000 / portTICK_PERIOD_MS); // Wait 2 seconds
     }
 
     // Start mqtt, then wait up to 40 * 0.25 = 10 seconds for it to start
