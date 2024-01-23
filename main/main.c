@@ -409,6 +409,10 @@ void app_main(void)
     // init the power values
     PowerManager_Initialise(&powerValues);
 
+    // If the config button is pressed (or jumped to ground) go into config mode.
+    if (gpio_get_level(BUTTON_PIN) == 0) { ESP_LOGI(TAG, "Button pressed, config mode active"); configMode = true; }
+    else {ESP_LOGI(TAG, "Button not pressed."); }
+
     // Initialise the SPIFFS system
     esp_vfs_spiffs_conf_t spiffs_conf = {
         .base_path = "/spiffs",
