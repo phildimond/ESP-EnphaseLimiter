@@ -18,6 +18,7 @@
     "files.associations": {
         "freertos.h": "c",
         "portable.h": "c",
-        "deprecated_definitions.h": "c"
+        "deprecated_definitions.h": "c",
+        "gpio.h": "c"
     }
 }

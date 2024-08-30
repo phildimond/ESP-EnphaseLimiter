@@ -41,6 +41,7 @@
 #include "esp_system.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "freertos/timers.h"
 
 #include "esp_wifi.h" 
@@ -64,7 +65,7 @@ const char *TAG = "EnphaseLimiter";
 
 esp_err_t err;
 int retry_num = 0;
-char s[512]; // general purpose string input
+char s[1000]; // general purpose string input
 bool wiFiGotIP = false;
 bool wiFiConnected = false;
 bool mqttConnected = false;
@@ -77,7 +78,7 @@ uint8_t oldRelayValue = 0x00;
 powerManager_T powerValues;
 bool powerValuesUpdated = false;
 bool curtailmentEnabled = false;
-bool manualControl = false;
+bool manualControl = true;
 esp_mqtt_client_handle_t client;
 
 static void log_error_if_nonzero(const char *message, int error_code)
@@ -182,6 +183,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             msg_id = esp_mqtt_client_subscribe(client, s, 0);
             ESP_LOGI(TAG, "Subscribe sent for the relay number command feed, msg_id=%d", msg_id);
 
+            /*
             // Subscribe to the curtailment switch feed
             sprintf(s, "homeassistant/switch/%s/command", config.Name);
             msg_id = esp_mqtt_client_subscribe(client, s, 0);
@@ -191,6 +193,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             sprintf(s, "homeassistant/switch/%s-manual/command", config.Name);
             msg_id = esp_mqtt_client_subscribe(client, s, 0);
             ESP_LOGI(TAG, "Subscribe sent for the switch command feed, msg_id=%d", msg_id);
+            */
 
             // Send the relay configuration.
             // Use the same command and state topics so we don't have to echo commands to state
@@ -205,6 +208,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             mqttMessagesQueued++;
             ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
 
+            /*
             // Send the curtailment enable switch configuration. Use the relay number availability topic
             // Use the same command and state topics so we don't have to echo commands to state
             sprintf(topic, "homeassistant/switch/%s/config",config.Name);
@@ -228,6 +232,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             msg_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, 1); // Temp sensor config, set the retain flag on the message
             mqttMessagesQueued++;
             ESP_LOGI(TAG, "Published Envoy Relay config message successfully, msg_id=%d", msg_id);
+            */
 
             // Send an online message
             sprintf(topic, "homeassistant/number/%s/availability", config.Name);
@@ -236,10 +241,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             mqttMessagesQueued++;
             ESP_LOGI(TAG, "Published Envoy Relay online message successfully, msg_id=%d, topic=%s", msg_id, topic);
 
+            /*
             // Subscribe to the power data feed
             msg_id = esp_mqtt_client_subscribe(client, "homeassistant/Power", 0);
             mqttMessagesQueued++;
             ESP_LOGI(TAG, "Subscribe sent for the power data feed, msg_id=%d", msg_id);
+            */
 
             break;
         case MQTT_EVENT_DISCONNECTED:
@@ -292,7 +299,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                         relayValue = val;
                         ESP_LOGV(TAG, "Set relay value to $%02X", relayValue);
                     }      
-                } else if (strstr(s, "switch")) {
+                } /* else if (strstr(s, "switch")) {
                     // Switch state changed from Home Assistant
                     if (strstr(s, "manual")) { // Enable switch?
                         strncpy(s, event->data, event->data_len);
@@ -307,8 +314,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                         s[event->data_len] = 0;
                         if (strstr(s, "ON")) { curtailmentEnabled  = true; } else { curtailmentEnabled = false; }
                         ESP_LOGI(TAG, "Curtailment switch state change received %s - changed to %d", s, curtailmentEnabled);
-                    }
-                } else {
+                    } 
+                } */ else {
                     // Don't know what this topic was
                     ESP_LOGE(TAG, "Received unknown command topic: %s", s);
                 }
@@ -409,8 +416,10 @@ void app_main(void)
     gpio_set_direction(RELAY3, GPIO_MODE_OUTPUT);
     gpio_set_level(RELAY3, 0);
 
+    /*
     // init the power values
     PowerManager_Initialise(&powerValues);
+    */
 
     // If the config button is pressed (or jumped to ground) go into config mode.
     if (gpio_get_level(BUTTON_PIN) == 0) { ESP_LOGI(TAG, "Button pressed, config mode active"); configMode = true; }
@@ -485,6 +494,7 @@ void app_main(void)
             mqtt_app_start();
         }        
 
+        /*
         // If curtailment is not enabled & not manual force the relay value to zero (maximum solar output)
         if (curtailmentEnabled == false && manualControl == false) {
             relayValue = 0;
@@ -494,6 +504,7 @@ void app_main(void)
             relayValue = CalculateRelaySettings(&powerValues, relayValue);
             powerValuesUpdated = false;
         }
+        */
 
         // Has the relay value changed?
         if (relayValue != oldRelayValue) {

@@ -103,7 +103,7 @@ int PowerManager_Decode(powerManager_T* instance, const char* s)
                     else if (strcmp(name, "Grid") == 0) { instance->gridPowerkW = val; }
                     else {
                         ESP_LOGE(TAG, "Error decoding JSON power data. Element %d had unknown type %s.", i, name);
-                        status = 1;
+                        //status = 1;
                     }
                 }
             }
