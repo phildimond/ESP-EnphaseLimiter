@@ -1,0 +1,2 @@
+source /home/phillip/source/ESP32/ESP-EnphaseLimiter/build/gdbinit/symbols
+source /home/phillip/source/ESP32/ESP-EnphaseLimiter/build/gdbinit/connect
